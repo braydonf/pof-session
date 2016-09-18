@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset='utf-8'>
+    <script src="build/scryptsy/scryptsy.build.js"></script>
+    <script>
+      var target = '0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+      var data = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+      var N = Math.pow(2, 10); // or 2, 14
+      var r = 8;
+      var p = 8;
+      var keyLenBytes = 32;
+      var token = '1ff25ae8c5fb50afe2b75569a331576b072e2a2fef54ea0c1e3a1ef5b3d446e9';
+      var salt = 0;
+      while(data > target) {
+        data = scryptsy(token, salt.toString(), N, r, p, keyLenBytes).toString('hex');
+        console.log(data);
+        salt += 1;
+      }
+      console.log(data);
+    </script>
+  </head>
+  <body>
+
+  </body>
+</html>
