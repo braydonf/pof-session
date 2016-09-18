@@ -75,7 +75,7 @@ Server.prototype.closeDatabase = function(callback) {
   callback();
 };
 
-Server.prototype.start = function() {
+Server.prototype.start = function(callback) {
   var self = this;
 
   self.app = express();
@@ -89,10 +89,10 @@ Server.prototype.start = function() {
 
   self.connectDatabase(function(err) {
     if (err) {
-      return console.log('Unable to open database', err);
+      return callback(err);
     }
-    self.app.listen(this.port, function () {
-      console.log('App listening on port', self.port);
+    self.app.listen(self.port, function () {
+      callback();
     });
   });
 
