@@ -16,7 +16,7 @@ function Server(options) {
 }
 
 Server.DEFAULT_PORT = 8080;
-Server.DEFAULT_TIME = 30000;
+Server.DEFAULT_TIME = 6000;
 Server.DEFAULT_TARGET = '0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
 
 Server.prototype.sha256 = function(token, nonce) {
@@ -51,14 +51,16 @@ Server.prototype.processWork = function(req, res, next) {
 };
 
 Server.prototype.spendTime = function(req, hrtime) {
-  var spent = Math.round(hrtime[0] + (hrtime[1] / 1000000));
+  var spent = Math.round((hrtime[0] * 1000) + (hrtime[1] / 1000000));
   var timeRemaining = req.session.timeRemaining - spent;
   if (timeRemaining <= 0) {
     req.session.token = null;
     req.session.nonce = null;
     req.session.timeRemaining = 0;
+    req.session.save();
   } else {
     req.session.timeRemaining = timeRemaining;
+    req.session.save();
   }
 };
 

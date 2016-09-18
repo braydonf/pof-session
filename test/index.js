@@ -84,12 +84,50 @@ describe('Proof-of-Work Session', function() {
             should.exist(res.headers['set-cookie']);
             res.statusCode.should.equal(200);
             body.should.equal('Hello, world!');
-            done();
+            server.stop(done);
           });
         });
       });
     });
   });
-  it('will stop authorization once api time has been spent', function() {
+  it('will stop authorization once api time has been spent', function(done) {
+    this.timeout(100000);
+    var server = new Server({
+      port: 12345
+    });
+
+    function drain(cookie, nonce, count, callback) {
+      request('GET', '/', cookie, nonce, function(err, res, body) {
+        should.exist(res.headers['set-cookie']);
+        if (res.statusCode === 200) {
+          body.should.equal('Hello, world!');
+          count += 1;
+          drain(cookie, nonce, count, callback);
+        } else if (res.statusCode === 402) {
+          callback(null, count);
+        } else {
+          callback(new Error('Unknown status code:' + res.statusCode));
+        }
+      });
+    }
+
+    server.start(function() {
+      var cookie;
+      request('GET', '/', false, false, function(err, res, body) {
+        should.exist(res.headers['set-cookie']);
+        cookie = res.headers['set-cookie'];
+
+        var json = JSON.parse(body);
+        work(json.token, 0, json.target, function(nonce) {
+          drain(cookie, nonce, 0, function(err, count) {
+            if (err) {
+              return done(err);
+            }
+            count.should.equal(4);
+            server.stop(done);
+          });
+        });
+      });
+    });
   });
 });
