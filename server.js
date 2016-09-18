@@ -4,6 +4,7 @@ var assert = require('assert');
 var crypto = require('crypto');
 
 var express = require('express');
+var session = require('express-session');
 var onHeaders = require('on-headers');
 
 function Server(options) {
@@ -15,64 +16,69 @@ function Server(options) {
 }
 
 Server.DEFAULT_PORT = 8080;
+Server.DEFAULT_TIME = 30000;
+Server.DEFAULT_TARGET = '0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+
+Server.prototype.sha256 = function(token, nonce) {
+  return crypto.createHash('sha256').update(token + nonce).digest('hex');
+};
 
 Server.prototype.requestWork = function(req, res) {
-  this.createToken(function(err, token) {
-    if (err) {
-      // TODO
-    }
-    res.status(402).jsonp({
-      algorithm: 'sha256',
-      params: {
-        target: '0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
-      },
-      token: token
-    });
+  var token = crypto.randomBytes(32).toString('hex');
+  var target = Server.DEFAULT_TARGET;
+  req.session.target = target;
+  req.session.token = token;
+  req.session.timeRemaining = 0;
+
+  res.status(402).jsonp({
+    algorithm: 'sha256',
+    target: target,
+    token: token,
+    timeRemaining: 0
   });
 };
 
-Server.prototype.createToken = function(callback) {
-  var token = crypto.randomBytes(32).toString('hex');
-  callback(null, token);
+Server.prototype.processWork = function(req, res, next) {
+  var nonce = req.header('x-nonce');
+  var hash = this.sha256(req.session.token, nonce);
+  if (hash < req.session.target) {
+    req.session.nonce = nonce;
+    req.session.timeRemaining = Server.DEFAULT_TIME;
+    next();
+  } else {
+    this.requestWork(req, res);
+  }
 };
 
-Server.prototype.getTimeRemaining = function() {
-
-};
-
-Server.prototype.spendTime = function(token, time) {
-
+Server.prototype.spendTime = function(req, hrtime) {
+  var spent = Math.round(hrtime[0] + (hrtime[1] / 1000000));
+  var timeRemaining = req.session.timeRemaining - spent;
+  if (timeRemaining <= 0) {
+    req.session.token = null;
+    req.session.nonce = null;
+    req.session.timeRemaining = 0;
+  } else {
+    req.session.timeRemaining = timeRemaining;
+  }
 };
 
 Server.prototype.workRequired = function() {
   var self = this;
   return function(req, res, next) {
-    if (!req.header('authorization')) {
-      self.requestWork(req, res);
+    if (!req.session.timeRemaining) {
+      if (req.header('x-nonce') && req.session.token) {
+        self.processWork(req, res, next);
+      } else {
+        self.requestWork(req, res);
+      }
     } else {
       req._startAt = process.hrtime();
-      var token = req.header('authorization');
-
-      self.getTimeRemaining(token, function(err, timeRemaining) {
-        if (!timeRemaining) {
-          self.requestWork(req, res);
-        } else {
-          onHeaders(res, function() {
-            self.spendTime(token, process.hrtime(req._startAt));
-          });
-          next();
-        }
+      onHeaders(res, function() {
+        self.spendTime(req, process.hrtime(req._startAt));
       });
+      next();
     }
   };
-};
-
-Server.prototype.connectDatabase = function(callback) {
-  callback();
-};
-
-Server.prototype.closeDatabase = function(callback) {
-  callback();
 };
 
 Server.prototype.start = function(callback) {
@@ -80,22 +86,28 @@ Server.prototype.start = function(callback) {
 
   self.app = express();
 
-  self.app.get('/', this.workRequired(), function (req, res) {
+  self.httpServer = require('http').createServer(self.app);
+
+  self.app.use(session({
+    saveUninitialized: true,
+    resave: false,
+    secret: crypto.randomBytes(32).toString('hex'),
+    cookie: {maxAge: 60 * 1000}
+  }));
+
+  self.app.get('/', this.workRequired(), function(req, res) {
     setTimeout(function() {
       res.send('Hello, world!');
     }, 2000);
   });
 
-
-  self.connectDatabase(function(err) {
-    if (err) {
-      return callback(err);
-    }
-    self.app.listen(self.port, function () {
-      callback();
-    });
+  self.httpServer.listen(self.port, function() {
+    callback();
   });
+};
 
+Server.prototype.stop = function(callback) {
+  this.httpServer.close(callback);
 };
 
 if (require.main === module) {
@@ -104,7 +116,12 @@ if (require.main === module) {
     options = JSON.parse(process.argv[2]);
   }
   var server = new Server(options);
-  server.start();
+  server.start(function(err) {
+    if (err) {
+      return console.log('Error starting server:', err);
+    }
+    console.log('Started server on port:', server.port);
+  });
 }
 
 module.exports = Server;
